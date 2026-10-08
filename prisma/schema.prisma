@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String    @db.VarChar(120)
+  url               String
+  description       String    @default("")
+  previewArtifactId String?   @map("preview_artifact_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  board             Board?
+  labels            Label[]
+  flowRecordings    FlowRecording[]
+  previewArtifact   Artifact? @relation("ProjectPreview", fields: [previewArtifactId], references: [id], onDelete: SetNull)
+
+  @@map("projects")
+}
+
+model Board {
+  id        String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String        @unique @map("project_id") @db.Uuid
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  columns   BoardColumn[]
+  tests     Test[]
+
+  @@map("boards")
+}
+
+model BoardColumn {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  boardId  String @map("board_id") @db.Uuid
+  name     String
+  position Int
+  board    Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  tests    Test[]
+
+  @@unique([boardId, position])
+  @@unique([boardId, name])
+  @@map("columns")
+}
+
+model Test {
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  boardId    String      @map("board_id") @db.Uuid
+  columnId   String      @map("column_id") @db.Uuid
+  position   Int
+  title      String      @db.VarChar(200)
+  objective  String      @default("")
+  version    Int         @default(1)
+  variables  Json        @default("[]")
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  board      Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  column     BoardColumn @relation(fields: [columnId], references: [id])
+  steps      TestStep[]
+  checks     TestCheck[]
+  labels     TestLabel[]
+  executions Execution[]
+
+  @@index([columnId, position])
+  @@index([boardId, updatedAt(sort: Desc)])
+  @@map("tests")
+}
+
+model TestStep {
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  testId              String       @map("test_id") @db.Uuid
+  position            Int
+  instruction         String
+  completionCondition String       @default("") @map("completion_condition")
+  required            Boolean      @default(true)
+  test                Test         @relation(fields: [testId], references: [id], onDelete: Cascade)
+  results             StepResult[]
+
+  @@unique([testId, position])
+  @@map("steps")
+}
+
+model TestCheck {
+  id       String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  testId   String        @map("test_id") @db.Uuid
+  position Int
+  kind     String
+  value    String
+  required Boolean       @default(true)
+  test     Test          @relation(fields: [testId], references: [id], onDelete: Cascade)
+  results  CheckResult[]
+
+  @@unique([testId, position])
+  @@map("checks")
+}
+
+model Label {
+  id        String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String      @map("project_id") @db.Uuid
+  name      String      @db.VarChar(48)
+  color     String      @default("#78849a") @db.VarChar(7)
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tests     TestLabel[]
+
+  @@unique([projectId, name])
+  @@map("labels")
+}
+
+model TestLabel {
+  testId  String @map("test_id") @db.Uuid
+  labelId String @map("label_id") @db.Uuid
+  test    Test   @relation(fields: [testId], references: [id], onDelete: Cascade)
+  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([testId, labelId])
+  @@map("test_labels")
+}
+
+model Execution {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  testId         String        @map("test_id") @db.Uuid
+  mode           String
+  status         String        @default("running")
+  phase          String        @default("queued")
+  definition     Json
+  environment    String        @default("local")
+  effectiveUrl   String        @map("effective_url")
+  idempotencyKey String        @map("idempotency_key")
+  parameters     Json          @default("{}")
+  startedAt      DateTime?     @map("started_at") @db.Timestamptz(6)
+  finishedAt     DateTime?     @map("finished_at") @db.Timestamptz(6)
+  heartbeatAt    DateTime?     @map("heartbeat_at") @db.Timestamptz(6)
+  error          String?
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  test           Test          @relation(fields: [testId], references: [id])
+  job            ExecutionJob?
+  stepResults    StepResult[]
+  checkResults   CheckResult[]
+  events         RunEvent[]
+  artifacts      Artifact[]
+
+  @@unique([testId, idempotencyKey])
+  @@index([testId, createdAt(sort: Desc)])
+  @@index([phase, createdAt])
+  @@map("executions")
+}
+
+model ExecutionJob {
+  executionId String    @id @map("execution_id") @db.Uuid
+  availableAt DateTime  @default(now()) @map("available_at") @db.Timestamptz(6)
+  claimedBy   String?   @map("claimed_by")
+  claimedAt   DateTime? @map("claimed_at") @db.Timestamptz(6)
+  attempts    Int       @default(0)
+  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([availableAt])
+  @@map("execution_jobs")
+}
+
+model StepResult {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  executionId         String    @map("execution_id") @db.Uuid
+  stepId              String?   @map("step_id") @db.Uuid
+  position            Int
+  completionCondition String    @default("") @map("completion_condition")
+  observed            String    @default("")
+  status              String
+  errorDetail         String?   @map("error_detail")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  execution           Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  step                TestStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@unique([executionId, position])
+  @@map("step_results")
+}
+
+model CheckResult {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  executionId String     @map("execution_id") @db.Uuid
+  checkId     String?    @map("check_id") @db.Uuid
+  position    Int
+  expected    String
+  observed    String     @default("")
+  status      String
+  errorDetail String?    @map("error_detail")
+  execution   Execution  @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  check       TestCheck? @relation(fields: [checkId], references: [id], onDelete: SetNull)
+
+  @@unique([executionId, position])
+  @@map("check_results")
+}
+
+model RunEvent {
+  id          BigInt    @id @default(autoincrement())
+  executionId String    @map("execution_id") @db.Uuid
+  sequence    Int
+  kind        String
+  payload     Json
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@unique([executionId, sequence])
+  @@index([executionId, sequence])
+  @@map("run_events")
+}
+
+model Artifact {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  executionId  String    @map("execution_id") @db.Uuid
+  kind         String
+  objectKey    String    @map("object_key")
+  mimeType     String    @map("mime_type")
+  sizeBytes    BigInt?   @map("size_bytes")
+  checksum     String?
+  status       String    @default("pending")
+  stepPosition Int?      @map("step_position")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  execution    Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  previews     Project[] @relation("ProjectPreview")
+
+  @@unique([executionId, objectKey])
+  @@map("artifacts")
+}
+
+model FlowRecording {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String            @map("project_id") @db.Uuid
+  title           String            @db.VarChar(200)
+  effectiveUrl    String            @map("effective_url")
+  status          String            @default("queued")
+  workerId        String?           @map("worker_id")
+  heartbeatAt     DateTime?         @map("heartbeat_at") @db.Timestamptz(6)
+  frameObjectKey  String?           @map("frame_object_key")
+  frameUpdatedAt  DateTime?         @map("frame_updated_at") @db.Timestamptz(6)
+  commandSequence Int               @default(0) @map("command_sequence")
+  error           String?
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  project         Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  events          RecordingEvent[]
+  commands        RecordingCommand[]
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("flow_recordings")
+}
+
+model RecordingEvent {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recordingId String        @map("recording_id") @db.Uuid
+  sequence    Int
+  kind        String
+  payload     Json
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  recording   FlowRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+
+  @@unique([recordingId, sequence])
+  @@index([recordingId, sequence])
+  @@map("recording_events")
+}
+
+model RecordingCommand {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recordingId String        @map("recording_id") @db.Uuid
+  sequence    Int
+  kind        String
+  payload     Json
+  status      String        @default("pending")
+  error       String?
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  finishedAt  DateTime?     @map("finished_at") @db.Timestamptz(6)
+  recording   FlowRecording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+
+  @@unique([recordingId, sequence])
+  @@index([recordingId, status, sequence])
+  @@map("recording_commands")
+}

@@ -1,0 +1,40 @@
+{
+  "name": "probator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "bun run check:cdp && next dev -H 127.0.0.1",
+    "build": "bun run build:rrweb && next build",
+    "start": "bun run check:cdp && next start -H 127.0.0.1",
+    "worker": "bun run check:cdp && bun run build:rrweb && bun run worker/main.ts",
+    "check:cdp": "bun scripts/check-cdp.ts",
+    "test": "bun test",
+    "test:integration": "bun test tests/database.integration.test.ts",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "build:rrweb": "bun build node_modules/rrweb/dist/rrweb.js --outdir public --entry-naming rrweb.bundle.js --target browser --format iife --global-name rrweb"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.850.0",
+    "@aws-sdk/s3-request-presigner": "^3.850.0",
+    "@probator/browser-engine": "workspace:*",
+    "@prisma/client": "^6.14.0",
+    "next": "^15.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "rrweb": "^2.1.7"
+  },
+  "devDependencies": {
+    "prisma": "^6.14.0",
+    "@types/node": "^22.15.0",
+    "@types/bun": "^1.3.5",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.9.2"
+  }
+}
